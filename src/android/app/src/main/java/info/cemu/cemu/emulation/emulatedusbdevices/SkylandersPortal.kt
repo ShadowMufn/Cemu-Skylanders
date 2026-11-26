@@ -1,5 +1,8 @@
 package info.cemu.cemu.emulation.emulatedusbdevices
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,12 +33,29 @@ fun SkylandersPortalTab(
     installedFigures: Array<NativeEmulatedUSBDevices.InstalledFigure>,
     onDeleteInstalledFigure: (NativeEmulatedUSBDevices.InstalledFigure) -> Unit,
     onLoadFigure: (NativeEmulatedUSBDevices.InstalledFigure, Int) -> Unit,
+    onImportFigure: (Uri, Int) -> Unit,
     onClear: (Int) -> Unit,
     onCreate: (Int, Int) -> Unit
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var showInstalledFigures by remember { mutableStateOf(false) }
     var selectForSlot by remember { mutableStateOf<Int?>(null) }
+    var pickForSlot by rememberSaveable { mutableStateOf<Int?>(null) }
+
+    // Library lists come back from the native side in directory order, so sort them here.
+    val sortedFigures = remember(installedFigures) {
+        installedFigures
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            .toTypedArray()
+    }
+
+    val figurePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val slot = pickForSlot
+        pickForSlot = null
+        if (uri != null && slot != null) {
+            onImportFigure(uri, slot)
+        }
+    }
 
     EmulatedUSBDeviceTabContent {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -58,7 +79,11 @@ fun SkylandersPortalTab(
                     Text(text = slot ?: tr("None"), fontSize = 16.sp)
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Button(onClick = { selectForSlot = i }) { Text(tr("Select")) }
+                Button(onClick = {
+                    pickForSlot = i
+                    figurePicker.launch(arrayOf("*/*"))
+                }) { Text(tr("Select")) }
+                Button(onClick = { selectForSlot = i }) { Text(tr("Library")) }
                 Button(enabled = slot != null, onClick = { onClear(i) }) { Text(tr("Clear")) }
             }
             HorizontalDivider()
@@ -75,7 +100,7 @@ fun SkylandersPortalTab(
     if (showInstalledFigures) {
         InstalledFiguresDialog(
             label = tr("Skylanders figures"),
-            installedFigures = installedFigures,
+            installedFigures = sortedFigures,
             onDelete = onDeleteInstalledFigure,
             onDismiss = { showInstalledFigures = false })
     }
@@ -83,7 +108,7 @@ fun SkylandersPortalTab(
     val slot = selectForSlot
     if (slot != null) {
         SelectInstalledFigureDialog(
-            installedFigures = installedFigures,
+            installedFigures = sortedFigures,
             onFigureSelected = { onLoadFigure(it, slot) },
             onDismiss = { selectForSlot = null })
     }
