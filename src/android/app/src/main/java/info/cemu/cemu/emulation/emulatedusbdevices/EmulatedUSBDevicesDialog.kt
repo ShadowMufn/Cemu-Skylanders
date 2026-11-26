@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
@@ -51,6 +52,7 @@ fun EmulatedUSBDevicesDialog(
     }
     var selectedDestination by rememberSaveable { mutableStateOf(enabledDestinations.firstOrNull()) }
     var lastFailedEvent by remember { mutableStateOf<UsbDeviceEvent?>(null) }
+    val context = LocalContext.current
 
     val dimensionSlots by viewModel.dimensionsSlots.state.collectAsState()
     val skylanderSlots by viewModel.skylanderSlots.state.collectAsState()
@@ -124,6 +126,9 @@ fun EmulatedUSBDevicesDialog(
                         installedFigures = installedSkylanderFigures,
                         onDeleteInstalledFigure = viewModel::deleteInstalledSkylanderFigure,
                         onLoadFigure = viewModel::loadSkylanderFigure,
+                        onImportFigure = { uri, slot ->
+                            viewModel.importAndLoadSkylanderFigure(context, uri, slot)
+                        },
                         onClear = viewModel::clearSkylandersFigure,
                     )
 
