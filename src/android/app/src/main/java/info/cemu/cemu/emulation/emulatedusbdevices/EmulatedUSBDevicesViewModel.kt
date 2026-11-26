@@ -227,4 +227,3 @@ class EmulatedUSBDevicesViewModel : ViewModel() {
         dimensionsSlots.refresh()
     }
 }
-}
