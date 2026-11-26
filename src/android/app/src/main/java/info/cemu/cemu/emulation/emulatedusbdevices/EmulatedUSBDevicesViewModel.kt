@@ -1,18 +1,28 @@
 package info.cemu.cemu.emulation.emulatedusbdevices
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import info.cemu.cemu.common.coroutines.RefreshableStateFlow
+import info.cemu.cemu.nativeinterface.NativeActiveSettings
 import info.cemu.cemu.nativeinterface.NativeEmulatedUSBDevices
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 sealed class UsbDeviceEvent {
     object CreateFailed : UsbDeviceEvent()
     object LoadFailed : UsbDeviceEvent()
 }
+
+private const val SKYLANDERS_FIGURES_DIR = "emulatedUSBDevices/skylanders"
+private const val SKY_FIGURE_SIZE = 0x40 * 0x10
 
 class EmulatedUSBDevicesViewModel : ViewModel() {
     val skylanderFigures = NativeEmulatedUSBDevices.getSkylanderFigures()
@@ -122,6 +132,72 @@ class EmulatedUSBDevicesViewModel : ViewModel() {
         skylanderSlots.refresh()
     }
 
+    /**
+     * Copies a .sky file picked with the system file picker into the app's skylanders folder
+     * (the native side can only open real file paths, not content:// URIs) and loads that copy
+     * into [slot]. If a file with the same name is already in the folder it is reused rather than
+     * overwritten, so figure progress is never replaced by an older copy.
+     * Progress made in-game is saved to the copy in the app folder, not to the picked original.
+     */
+    fun importAndLoadSkylanderFigure(context: Context, uri: Uri, slot: Int) {
+        viewModelScope.launch {
+            val figure = withContext(Dispatchers.IO) { importSkylanderFigure(context, uri) }
+            if (figure == null) {
+                emitEvent(UsbDeviceEvent.LoadFailed)
+                return@launch
+            }
+            installedSkylanderFigures.refresh()
+            loadSkylanderFigure(figure, slot)
+        }
+    }
+
+    private fun importSkylanderFigure(
+        context: Context, uri: Uri
+    ): NativeEmulatedUSBDevices.InstalledFigure? {
+        try {
+            val resolver = context.contentResolver
+
+            val displayName = resolver.query(
+                uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+            var fileName = (displayName ?: "figure")
+                .substringAfterLast('/')
+                .substringAfterLast('\\')
+                .ifBlank { "figure" }
+            if (!fileName.endsWith(".sky", ignoreCase = true)) {
+                fileName += ".sky"
+            }
+
+            val figuresDir =
+                File(NativeActiveSettings.getUserDataPath()).resolve(SKYLANDERS_FIGURES_DIR)
+            figuresDir.mkdirs()
+            val target = figuresDir.resolve(fileName)
+
+            if (!target.isFile) {
+                val data = ByteArray(SKY_FIGURE_SIZE + 1)
+                var read = 0
+                resolver.openInputStream(uri)?.use { input ->
+                    while (read < data.size) {
+                        val count = input.read(data, read, data.size - read)
+                        if (count < 0) break
+                        read += count
+                    }
+                } ?: return null
+                // A real Skylanders dump is exactly 1KB; reject anything else.
+                if (read != SKY_FIGURE_SIZE) return null
+                target.writeBytes(data.copyOf(read))
+            }
+
+            return NativeEmulatedUSBDevices.InstalledFigure(
+                name = target.nameWithoutExtension,
+                path = target.absolutePath,
+            )
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     fun loadDimensionsFigure(
         figure: NativeEmulatedUSBDevices.InstalledFigure, pad: Int, index: Int
     ) {
@@ -150,4 +226,5 @@ class EmulatedUSBDevicesViewModel : ViewModel() {
         NativeEmulatedUSBDevices.moveDimensionsFigure(pad, index, oldPad, oldIndex)
         dimensionsSlots.refresh()
     }
+}
 }
